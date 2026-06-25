@@ -1,95 +1,131 @@
+```python
 import streamlit as st
 import os
-from typing import Annotated, TypedDict
+from typing import TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.graph import StateGraph, END
 
-# 1. Configuración de la Página
-st.set_page_config(page_title="IA 4 DUMMIES", page_icon="🤖", layout="wide")
-st.title("🤖 IA 4 DUMMIES")
-st.markdown("### Las noticias de IA contadas como cuentos para jóvenes")
 
-# 2. Sidebar: Configuración de API Keys
+# 1. Page Configuration
+st.set_page_config(
+    page_title="Enterprise Market Intelligence Agent",
+    layout="wide"
+)
+
+st.title("Enterprise Market Intelligence Agent")
+st.markdown(
+    "Real-time market intelligence powered by LangGraph, Gemini, and Tavily."
+)
+
+
+# 2. Sidebar: API Key Configuration
 with st.sidebar:
-    st.header("🔑 Configuración")
-    google_key = st.text_input("Google API Key:", type="password")
-    tavily_key = st.text_input("Tavily API Key:", type="password")
-    
+    st.header("API Configuration")
+
+    google_key = st.text_input("Google API Key", type="password")
+    tavily_key = st.text_input("Tavily API Key", type="password")
+
     if google_key and tavily_key:
-        # Seteo inmediato en el entorno para evitar errores de validación del LLM
         os.environ["GOOGLE_API_KEY"] = google_key
         os.environ["TAVILY_API_KEY"] = tavily_key
-        st.success("✅ APIs configuradas correctamente")
+        st.success("APIs configured successfully")
 
-# 3. Definición del Estado y el Grafo
+
+# 3. Agent State Definition
 class AgentState(TypedDict):
     question: str
     search_results: str
-    final_story: str
+    executive_brief: str
 
-def tool_search_news(state: AgentState):
-    """Busca en tiempo real usando Tavily"""
-    # Se inicializa dentro del nodo para asegurar que use la API Key del sidebar
-    search = TavilySearchResults(max_results=3)
+
+# 4. LangGraph Nodes
+def market_research_node(state: AgentState):
+    """
+    Performs real-time market research using Tavily.
+    """
+    search = TavilySearchResults(max_results=5)
     results = search.invoke(state["question"])
+
     return {"search_results": str(results)}
 
-def generator_story(state: AgentState):
-    """Transforma las noticias en un cuento simple"""
-    llm = ChatGoogleGenerativeAI(model='gemini-2.5-flash')
-    
-    prompt = f"""
-    Eres un narrador experto que explica tecnología a jovencitos de 10 años.
-    Usa términos muy simples, metáforas y cuenta una historia emocionante.
-    
-    CONTEXTO DE NOTICIAS:
-    {state['search_results']}
-    
-    TEMA A EXPLICAR:
-    {state['question']}
-    
-    INSTRUCCIÓN: Explica qué ha pasado como si fuera un cuento corto.
+
+def executive_brief_node(state: AgentState):
     """
-    
+    Converts real-time search results into a concise executive briefing.
+    """
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+
+    prompt = f"""
+You are an expert Market Intelligence Analyst.
+
+Based on the real-time search context provided, generate a concise Executive Briefing for a C-level audience.
+
+Highlight:
+- Key events
+- Market implications
+- Strategic risks
+- Potential opportunities
+- Recommended executive considerations
+
+Maintain a highly professional, objective tone.
+
+SEARCH CONTEXT:
+{state["search_results"]}
+
+BUSINESS QUESTION:
+{state["question"]}
+
+OUTPUT FORMAT:
+1. Executive Summary
+2. Key Market Signals
+3. Strategic Implications
+4. Risks to Monitor
+5. Recommended Next Steps
+"""
+
     response = llm.invoke(prompt)
-    return {"final_story": response.content}
 
-# Construcción del flujo
+    return {"executive_brief": response.content}
+
+
+# 5. Workflow Construction
 workflow = StateGraph(AgentState)
-workflow.add_node("buscador", tool_search_news)
-workflow.add_node("escritor", generator_story)
 
-workflow.set_entry_point("buscador")
-workflow.add_edge("buscador", "escritor")
-workflow.add_edge("escritor", END)
+workflow.add_node("market_research", market_research_node)
+workflow.add_node("executive_brief", executive_brief_node)
+
+workflow.set_entry_point("market_research")
+workflow.add_edge("market_research", "executive_brief")
+workflow.add_edge("executive_brief", END)
 
 app_graph = workflow.compile()
 
-# 4. Interfaz de Usuario (Input y Ejecución)
-if google_key and tavily_key:
-    pregunta = st.text_input("¿Qué quieres entender hoy?", 
-                             placeholder="Ej: ¿Qué es Sora de OpenAI?")
 
-    if pregunta:
-        with st.spinner("🕵️‍♀️ Buscando noticias y escribiendo tu historia..."):
+# 6. User Interface
+if google_key and tavily_key:
+    user_question = st.text_input(
+        "Market intelligence request",
+        placeholder="Example: What are the latest strategic moves in generative AI for enterprise software?"
+    )
+
+    if user_question:
+        with st.spinner("Running market research and generating executive briefing..."):
             try:
-                # Ejecución del grafo
-                inputs = {"question": pregunta}
-                resultado = app_graph.invoke(inputs)
-                
-                # Resultado principal
+                inputs = {"question": user_question}
+                result = app_graph.invoke(inputs)
+
                 st.markdown("---")
-                st.subheader("📖 Tu cuento de IA:")
-                st.write(resultado["final_story"])
-                
-                # Trazabilidad técnica
-                with st.expander("🛠️ Ver datos técnicos (Fuentes de Tavily)"):
-                    st.code(resultado["search_results"], language="text")
-            
+                st.subheader("Executive Briefing")
+                st.write(result["executive_brief"])
+
+                with st.expander("Source Data: Tavily Search Results"):
+                    st.code(result["search_results"], language="text")
+
             except Exception as e:
-                st.error(f"Hubo un error al generar la historia: {str(e)}")
-                st.info("Revisa que tus API Keys sean correctas y tengan créditos.")
+                st.error(f"An error occurred while generating the briefing: {str(e)}")
+                st.info("Please verify that your API keys are valid and have available credits.")
 
 else:
-    st.warning("👈 Introduce tus claves de Google y Tavily en el menú de la izquierda para empezar.")
+    st.warning("Enter your Google and Tavily API keys in the sidebar to start.")
+```
